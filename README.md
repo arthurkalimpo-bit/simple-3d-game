@@ -1,2 +1,11 @@
-# simple-3d-game
-A simple 3D game with controller support that runs in VS Code
+# Logs
+node_modules/
+dist/
+.vite/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/

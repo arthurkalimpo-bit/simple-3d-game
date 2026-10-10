@@ -1,0 +1,248 @@
+import './style.css';
+import * as THREE from 'three';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1020);
+scene.fog = new THREE.Fog(0x0b1020, 12, 40);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 7, 10);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const clock = new THREE.Clock();
+
+const ambientLight = new THREE.HemisphereLight(0xbfe3ff, 0x243744, 1.2);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(8, 14, 6);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+scene.add(dirLight);
+
+const arenaSize = 18;
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(arenaSize * 2, arenaSize * 2),
+  new THREE.MeshStandardMaterial({ color: 0x1a2c3a, roughness: 0.95, metalness: 0.1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const borderMaterial = new THREE.MeshStandardMaterial({ color: 0x4d6b86, emissive: 0x10151d });
+const wallThickness = 0.6;
+const wallHeight = 2.5;
+const walls = [
+  { x: 0, z: -arenaSize, w: arenaSize * 2, h: wallHeight, d: wallThickness },
+  { x: 0, z: arenaSize, w: arenaSize * 2, h: wallHeight, d: wallThickness },
+  { x: -arenaSize, z: 0, w: wallThickness, h: wallHeight, d: arenaSize * 2 },
+  { x: arenaSize, z: 0, w: wallThickness, h: wallHeight, d: arenaSize * 2 },
+];
+
+for (const wall of walls) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(wall.w, wall.h, wall.d),
+    borderMaterial
+  );
+  mesh.position.set(wall.x, wall.h / 2, wall.z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+const player = new THREE.Group();
+const body = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshStandardMaterial({ color: 0x58a6ff, emissive: 0x183c73, metalness: 0.2, roughness: 0.42 })
+);
+body.castShadow = true;
+body.position.y = 0.75;
+player.add(body);
+
+const visor = new THREE.Mesh(
+  new THREE.BoxGeometry(0.7, 0.25, 0.5),
+  new THREE.MeshStandardMaterial({ color: 0xc8ebff, emissive: 0x1b426b })
+);
+visor.position.set(0, 1.05, 0.25);
+player.add(visor);
+
+player.position.set(0, 0, 0);
+scene.add(player);
+
+const goalGroup = new THREE.Group();
+const goalCore = new THREE.Mesh(
+  new THREE.OctahedronGeometry(0.75, 0),
+  new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0x6e4815, metalness: 0.5, roughness: 0.3 })
+);
+goalCore.castShadow = true;
+goalGroup.add(goalCore);
+
+const goalRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.2, 0.12, 20, 40),
+  new THREE.MeshStandardMaterial({ color: 0xff9f1c, emissive: 0x7d4a00 })
+);
+goalRing.rotation.x = Math.PI / 2;
+goalRing.position.y = 0.1;
+goalGroup.add(goalRing);
+scene.add(goalGroup);
+
+const collectibles = [];
+const crystalGeometry = new THREE.OctahedronGeometry(0.4, 0);
+for (let i = 0; i < 6; i += 1) {
+  const crystal = new THREE.Mesh(
+    crystalGeometry,
+    new THREE.MeshStandardMaterial({ color: 0x7ef9c6, emissive: 0x0e5a44, metalness: 0.3, roughness: 0.25 })
+  );
+  crystal.castShadow = true;
+  crystal.userData.collected = false;
+  crystal.position.set(
+    (Math.random() * (arenaSize - 2) - (arenaSize - 2) / 2),
+    0.75,
+    (Math.random() * (arenaSize - 2) - (arenaSize - 2) / 2)
+  );
+  collectibles.push(crystal);
+  scene.add(crystal);
+}
+
+const scoreEl = document.getElementById('score');
+const messageEl = document.getElementById('message');
+
+let score = 0;
+let gameOver = false;
+
+const keyState = {};
+window.addEventListener('keydown', (event) => {
+  keyState[event.key.toLowerCase()] = true;
+  if (event.key.toLowerCase() === 'r') {
+    resetGame();
+  }
+});
+window.addEventListener('keyup', (event) => {
+  keyState[event.key.toLowerCase()] = false;
+});
+
+function resetGame() {
+  score = 0;
+  gameOver = false;
+  player.position.set(0, 0, 0);
+  goalGroup.position.set(
+    (Math.random() * 10) - 5,
+    0,
+    (Math.random() * 10) - 5
+  );
+  for (const crystal of collectibles) {
+    crystal.userData.collected = false;
+    crystal.visible = true;
+    crystal.position.set(
+      (Math.random() * (arenaSize - 2) - (arenaSize - 2) / 2),
+      0.75,
+      (Math.random() * (arenaSize - 2) - (arenaSize - 2) / 2)
+    );
+  }
+  scoreEl.textContent = `Score: ${score}`;
+  messageEl.textContent = 'Collect all crystals';
+}
+
+function getGamepadMovement() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const pad = pads[0];
+  if (!pad) return { x: 0, z: 0 };
+
+  const x = pad.axes[0] ?? 0;
+  const z = pad.axes[1] ?? 0;
+  return { x, z };
+}
+
+function updateMovement(delta) {
+  const moveSpeed = 6.8;
+  let inputX = 0;
+  let inputZ = 0;
+
+  if (keyState['w'] || keyState['arrowup']) inputZ -= 1;
+  if (keyState['s'] || keyState['arrowdown']) inputZ += 1;
+  if (keyState['a'] || keyState['arrowleft']) inputX -= 1;
+  if (keyState['d'] || keyState['arrowright']) inputX += 1;
+
+  const pad = getGamepadMovement();
+  inputX += pad.x;
+  inputZ += pad.z;
+
+  const length = Math.hypot(inputX, inputZ) || 1;
+  inputX /= length;
+  inputZ /= length;
+
+  const dx = inputX * moveSpeed * delta;
+  const dz = inputZ * moveSpeed * delta;
+
+  player.position.x = THREE.MathUtils.clamp(player.position.x + dx, -arenaSize + 1.2, arenaSize - 1.2);
+  player.position.z = THREE.MathUtils.clamp(player.position.z + dz, -arenaSize + 1.2, arenaSize - 1.2);
+
+  if (Math.abs(inputX) > 0.01 || Math.abs(inputZ) > 0.01) {
+    player.rotation.y = Math.atan2(inputX, inputZ);
+  }
+}
+
+function updateCollectibles() {
+  for (const crystal of collectibles) {
+    if (crystal.userData.collected) continue;
+
+    crystal.rotation.y += 0.03;
+    crystal.position.y = 0.8 + Math.sin(clock.elapsedTime * 3 + crystal.position.x) * 0.18;
+
+    const dist = crystal.position.distanceTo(player.position);
+    if (dist < 1.2) {
+      crystal.userData.collected = true;
+      crystal.visible = false;
+      score += 1;
+      scoreEl.textContent = `Score: ${score}`;
+
+      if (score >= collectibles.length) {
+        gameOver = true;
+        messageEl.textContent = 'You win! Press R to play again';
+      } else {
+        messageEl.textContent = 'Crystal collected!';
+      }
+    }
+  }
+}
+
+function updateGoal() {
+  goalGroup.rotation.y += 0.02;
+  goalGroup.position.y = 0.75 + Math.sin(clock.elapsedTime * 2.2) * 0.25;
+
+  if (player.position.distanceTo(goalGroup.position) < 1.5 && score >= collectibles.length) {
+    messageEl.textContent = 'Goal reached!';
+  }
+}
+
+function updateCamera() {
+  camera.position.lerp(
+    new THREE.Vector3(player.position.x * 0.7, 7.5, player.position.z + 9),
+    1 - Math.exp(-0.05)
+  );
+  camera.lookAt(player.position.x, 1.5, player.position.z);
+}
+
+function animate() {
+  const delta = clock.getDelta();
+  updateMovement(delta);
+  updateCollectibles();
+  updateGoal();
+  updateCamera();
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+resetGame();
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
